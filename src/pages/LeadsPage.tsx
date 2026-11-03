@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { LeadDetailDrawer } from '../components/LeadDetailDrawer';
-import { db, getAppSettings } from '../db/database';
+import { db, getAppSettings, saveAppSettings } from '../db/database';
 import { REGION_GROUPS, TAIWAN_CITIES } from '../lib/csvParser';
 import { enrichSingleLeadWithGcis } from '../lib/gcis';
-import { calculateDaysSinceSetup } from '../lib/scoring';
+import { applyScoringToLead, calculateDaysSinceSetup } from '../lib/scoring';
 import { DEFAULT_SERVICES, getServiceMap } from '../lib/services';
 import { Lead, LeadStatus, OrgType, ServiceDefinition } from '../types';
 
@@ -17,6 +17,7 @@ export const LeadsPage: React.FC = () => {
   const [allLeads, setAllLeads] = useState<Lead[]>([]);
   const [services, setServices] =
     useState<ServiceDefinition[]>(DEFAULT_SERVICES);
+  const [newSurveyCount, setNewSurveyCount] = useState(0);
   const [loading, setLoading] = useState(true);
 
   // 篩選條件
@@ -57,6 +58,7 @@ export const LeadsPage: React.FC = () => {
       ]);
       setAllLeads(leadsData);
       setServices(settings.services);
+      setNewSurveyCount(settings.newSurveyCount || 0);
     } finally {
       setLoading(false);
     }
@@ -67,6 +69,73 @@ export const LeadsPage: React.FC = () => {
   }, []);
 
   const serviceMap = useMemo(() => getServiceMap(services), [services]);
+
+  // 【今日待辦（首頁）】已寄出滿10天仍未回覆、分數≥70、contactCount<2 → 提示安排一次人工跟進，跟進後寫 sends
+  const followUpTodos = useMemo(() => {
+    const nowMs = Date.now();
+    const tenDaysMs = 10 * 24 * 60 * 60 * 1000;
+    return allLeads.filter((l) => {
+      if (
+        l.status !== '已寄Email' &&
+        l.status !== '已寄紙本' &&
+        l.status !== '未回覆'
+      ) {
+        return false;
+      }
+      if (l.score < 70) return false;
+      if ((l.contactCount || 0) >= 2) return false;
+      if (!l.lastContactAt) return false;
+      const lastMs = new Date(l.lastContactAt).getTime();
+      if (Number.isNaN(lastMs)) return false;
+      return nowMs - lastMs >= tenDaysMs;
+    });
+  }, [allLeads]);
+
+  const handleRecordFollowUp = async (
+    lead: Lead,
+    channel: 'phone' | 'email' | 'letter'
+  ) => {
+    const now = new Date().toISOString();
+    const settings = await getAppSettings(db);
+    await db.sends.add({
+      leadId: lead.id,
+      channel,
+      at: now,
+      subject: `人工跟進（${channel === 'phone' ? '電話' : channel === 'email' ? 'Email' : '紙本'}）`,
+      result: 'sent',
+    });
+
+    const updated = applyScoringToLead(
+      {
+        ...lead,
+        contactCount: (lead.contactCount || 0) + 1,
+        lastContactAt: now,
+        statusHistory: [
+          ...(lead.statusHistory || []),
+          {
+            status: lead.status,
+            at: now,
+            note: `完成第 ${(lead.contactCount || 0) + 1} 次人工跟進`,
+          },
+        ],
+      },
+      settings.services,
+      settings.weights
+    );
+    await db.leads.put(updated);
+    setAllLeads((prev) =>
+      prev.map((item) => (item.id === updated.id ? updated : item))
+    );
+    if (selectedLead?.id === updated.id) {
+      setSelectedLead(updated);
+    }
+  };
+
+  const handleClearSurveyBanner = async () => {
+    await saveAppSettings({ newSurveyCount: 0 }, db);
+    setNewSurveyCount(0);
+    setStatusFilter('有興趣');
+  };
 
   const filteredLeads = useMemo(() => {
     const now = new Date();
@@ -283,6 +352,96 @@ export const LeadsPage: React.FC = () => {
 
   return (
     <div className="page-container">
+      {/* 首頁新問卷回覆通知 */}
+      {newSurveyCount > 0 && (
+        <div
+          className="card"
+          style={{
+            borderColor: '#0f766e',
+            background: '#f0fdfa',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+          }}
+        >
+          <strong>🔔 新問卷回覆 {newSurveyCount} 筆！系統已自動同步需求至對應企業備註。</strong>
+          <button
+            className="btn btn-sm btn-accent"
+            onClick={handleClearSurveyBanner}
+          >
+            篩選「有興趣」名單並標為已讀
+          </button>
+        </div>
+      )}
+
+      {/* 今日待辦：已寄出滿10天仍未回覆、分數≥70、contactCount<2 */}
+      {followUpTodos.length > 0 && (
+        <div
+          className="card"
+          style={{ borderColor: '#f59e0b', background: '#fffbeb' }}
+        >
+          <div className="section-title-row">
+            <h3>
+              📌 今日待辦：建議安排一次人工跟進（已寄出滿 10 天未回覆、分數 ≥ 70、接觸 &lt; 2 次，共{' '}
+              {followUpTodos.length} 家）
+            </h3>
+          </div>
+          <div className="table-scroll">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>分數</th>
+                  <th>公司名稱</th>
+                  <th>目前狀態</th>
+                  <th>上次接觸日</th>
+                  <th>接觸次數</th>
+                  <th>紀錄跟進（寫入 sends）</th>
+                </tr>
+              </thead>
+              <tbody>
+                {followUpTodos.slice(0, 20).map((todo) => (
+                  <tr key={todo.id}>
+                    <td>
+                      <span className="score-pill score-high">{todo.score}</span>
+                    </td>
+                    <td>
+                      <a
+                        href="#todo"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          setSelectedLead(todo);
+                        }}
+                      >
+                        <strong>{todo.name}</strong> ({todo.id})
+                      </a>
+                    </td>
+                    <td>{todo.status}</td>
+                    <td>{todo.lastContactAt?.slice(0, 10) || '-'}</td>
+                    <td>{todo.contactCount} / 2</td>
+                    <td>
+                      <div className="inline-inputs">
+                        <button
+                          className="btn btn-sm btn-primary"
+                          onClick={() => handleRecordFollowUp(todo, 'phone')}
+                        >
+                          📞 記錄電話跟進
+                        </button>
+                        <button
+                          className="btn btn-sm btn-outline"
+                          onClick={() => handleRecordFollowUp(todo, 'email')}
+                        >
+                          ✉️ 記錄Email跟進
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       <div className="page-header">
         <div>
           <h1>商機名單篩選與評分</h1>
