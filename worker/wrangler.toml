@@ -1,0 +1,20 @@
+name = "bizradar-mailer"
+main = "src/index.ts"
+compatibility_date = "2026-11-03"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "bizradar-db"
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "migrations"
+
+[vars]
+FROM_EMAIL = "沃客買 <hello@mail.workmateiia.com>"
+REPLY_TO = "sampeng0206@gmail.com"
+COMPANY_NAME = "沃客買創業投資股份有限公司"
+COMPANY_ADDRESS = ""
+COMPANY_PHONE = ""
+COMPANY_WEBSITE = ""
+DAILY_LIMIT = "20"
+ALLOWED_ORIGINS = "http://localhost:5173,https://sampeng0206-web.github.io"
+GCIS_URL = "https://data.gcis.nat.gov.tw/od/data/api/236EE382-4942-41A9-BD03-CA0709025E7C?$format=json&$filter=Business_Accounting_NO%20eq%20{taxId}&$skip=0&$top=50"
