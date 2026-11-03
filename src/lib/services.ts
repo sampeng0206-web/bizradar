@@ -140,12 +140,12 @@ export const DEFAULT_LETTER_BODY = `{{公司名稱}} 負責人 您好：
 官網：{{官網}}`;
 
 export const DEFAULT_SETTINGS: AppSettings = {
-  workerUrl: '',
+  workerUrl: 'https://bizradar-mailer.sampeng-lifetrigger.workers.dev',
   appToken: '',
   companyName: '沃客買創業投資股份有限公司',
-  companyAddress: '',
-  companyPhone: '',
-  companyWebsite: '',
+  companyAddress: '＿＿＿',
+  companyPhone: '＿＿＿',
+  companyWebsite: 'https://workmateiia.com',
   emailSubjectTemplate: DEFAULT_EMAIL_SUBJECT,
   emailBodyTemplate: DEFAULT_EMAIL_BODY,
   letterBodyTemplate: DEFAULT_LETTER_BODY,

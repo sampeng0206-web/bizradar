@@ -70,7 +70,11 @@ describe('第三部分：範本渲染、寄送檢查、Worker 同步回寫（拒
     expect(rendered).toContain('一般法律議題諮詢及專業轉介');
     expect(rendered).toContain('本服務不保證任何政府補助、貸款或投資核准結果。');
 
-    const missing = checkMissingRequiredSettings(DEFAULT_SETTINGS);
+    const missing = checkMissingRequiredSettings({
+      ...DEFAULT_SETTINGS,
+      workerUrl: '',
+      appToken: '',
+    });
     expect(missing).toContain('Worker 網址');
     expect(missing).toContain('APP_TOKEN');
   });

@@ -8,9 +8,10 @@
    - `COMPANY_WEBSITE`（公司官網，用於紙本信與 Email 簽名檔）
 2. **Cloudflare Worker Secrets（暫停點①由使用者於終端機手動輸入）**：
    - `RESEND_API_KEY`、`APP_TOKEN`、`LINK_SECRET`、`RESEND_WEBHOOK_SECRET` 需於首次部署後由使用者在終端機執行 `npx wrangler secret put <NAME>` 設定，絕不寫入程式碼或設定檔。
-3. **Cloudflare D1 資料庫與 GitHub Pages 啟用（暫停點①、②、③待確認）**：
-   - 建立 `bizradar-db`、套用 `0001_init.sql` migration 與首次執行 `npx wrangler deploy`。
-   - 啟用 GitHub Pages 自動部署與 JSON 備份覆蓋還原功能上線確認。
+3. **Cloudflare D1 資料庫、GitHub Pages 啟用與備份還原功能上線確認（暫停點①、②、③待確認）**：
+   - 暫停點①：建立 `bizradar-db`、套用 `0001_init.sql` migration 與首次執行 `npx wrangler deploy`。
+   - 暫停點②：開啟 GitHub Pages 並推送第四段部署 commit。
+   - 暫停點③：設定頁內建「JSON 備份覆蓋還原（覆蓋前二次確認，會清空現有本機 IndexedDB 資料表後寫入備份）」功能，於部署上線前請使用者確認。
 
 ## 決定
 
@@ -23,12 +24,16 @@
    - 讀取 `https://data.gcis.nat.gov.tw/resources/swagger/swagger.json` 後，確認「公司登記基本資料-應用三」之正確端點為：
      - **Path**：`/od/data/api/236EE382-4942-41A9-BD03-CA0709025E7C`
      - **完整查詢 URL（`GCIS_URL`）**：
-       `https://data.gcis.nat.gov.tw/od/data/api/236EE382-4942-41A9-BD03-CA0709025E7C?$format=json&$filter=Business_Accounting_NO eq {taxId}&$skip=0&$top=50`
+       `https://data.gcis.nat.gov.tw/od/data/api/236EE382-4942-41A9-BD03-CA0709025E7C?$format=json&$filter=Business_Accounting_NO%20eq%20{taxId}&$skip=0&$top=50`
      - **回傳欄位**：包含 `Business_Accounting_NO`、`Company_Name`、`Company_Status`、`Company_Status_Desc`（如 `"核准設立"`）、`Company_Setup_Date`、`Cmp_Business`（陣列，含 `Business_Seq_NO`、`Business_Item`、`Business_Item_Desc`）。
    - **雙向連線測試結果**：
      1. **瀏覽器直接 `fetch` 測試**：向 `https://data.gcis.nat.gov.tw/od/data/api/236EE382-4942-41A9-BD03-CA0709025E7C?...` 帶入 `Origin: http://localhost:5173`（或 `https://sampeng0206-web.github.io`）發送請求時，HTTP 狀態碼為 `200`，但回應標頭**未包含 `Access-Control-Allow-Origin`**（值為空），在瀏覽器環境下會因 CORS 政策遭阻擋（拋出 `TypeError: Failed to fetch`）。
      2. **Worker `/gcis` 代理查詢測試**：由伺服器端／Cloudflare Worker 發送相同請求不受瀏覽器同源政策限制，可正常取得完整 JSON 陣列（實測統編 `20828393` 回傳 `Company_Status_Desc: "核准設立"` 及 22 筆 `Cmp_Business` 營業項目代碼與說明），再由 Worker 加上 `Access-Control-Allow-Origin` 回傳前端。
      3. **前端補抓策略**：前端執行「補抓營業項目」時，先嘗試直接 `fetch` GCIS 端點；若因 CORS 失敗，自動切換呼叫 Worker `GET /gcis?taxId={taxId}` 並記錄連線模式。
+3. **真實官方 CSV 匯入實測統計（`dataset/6047` 最新月份清冊）**：
+   - 測試資料源：`https://data.gcis.nat.gov.tw/od/file?oid=BE262479-A82A-4113-B575-62335E1E151D`（公司設立登記清冊，檔案於站外暫存測試後即刪除，未寫入 repo）。
+   - 編碼與表頭：UTF-8，`['序號', '統一編號', '公司名稱', '公司所在地', '代表人', '資本額', '核准設立日期']`，100% 自動對應成功。
+   - 統計結果：讀取 **2,915** 筆、新增 **2,915** 筆、更新 **0** 筆、排除 **0** 筆、錯誤／未知縣市 **0** 筆；初評分數 ≥ 70 分共 **87** 筆（縣市分布：臺北市 693、臺中市 516、新北市 502、高雄市 326、桃園市 296、臺南市 173、新竹縣 64、彰化縣 61、新竹市 53、屏東縣 36、雲林縣 33、宜蘭縣 27、苗栗縣 26、嘉義縣 26、嘉義市 20、基隆市 18、南投縣 15、花蓮縣 13、臺東縣 8、金門縣 5、澎湖縣 4）。
 
 ## 偏離
 
